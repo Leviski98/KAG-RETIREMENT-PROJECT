@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Section Details</title>
+  <link rel="stylesheet" href="src/dashboard-styles.css" />
+  <style>
+    .page-container { max-width: 1000px; margin: 40px auto; padding: 0 20px; }
+    .page-header { display:flex; justify-content:space-between; align-items:center; }
+    .page-title { font-size: 24px; font-weight: 700; }
+    .actions { display:flex; gap:10px; align-items:center; }
+    .back-link { position: fixed; top: 16px; left: 16px; z-index: 1100; color: #e0e0e0; text-decoration: none; padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); display: inline-flex; align-items: center; gap: 8px; }
+    .back-link:hover { background: rgba(255,255,255,0.15); }
+    /* Modal styles */
+    .modal { display:none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background: rgba(0,0,0,0.6); }
+    .modal-content { background: linear-gradient(135deg, rgba(30,30,30,0.95), rgba(40,40,40,0.95)); margin: 6% auto; padding: 20px; border-radius: 12px; width: 92%; max-width: 700px; color: #e0e0e0; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    .modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: 16px; }
+    .modal-title { font-size: 20px; font-weight: 700; }
+    .close { cursor: pointer; font-size: 24px; opacity: 0.8; }
+    .form-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+    .form-group { display:flex; flex-direction:column; gap:6px; }
+    .form-group label { opacity:0.85; font-size: 14px; }
+    .form-group input, .form-group select { padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.35); background: #2a2a2a; color:#ffffff; }
+    .form-group select:focus { outline: 2px solid #6aa0ff; border-color: #6aa0ff; }
+    /* Improve dropdown option contrast */
+    select option { color: #000000; background: #ffffff; }
+    .btn-row { display:flex; gap:10px; justify-content:flex-end; margin-top: 14px; }
+    .readonly { opacity: 0.8; }
+    /* Pastor card action buttons: smaller and spaced left/right */
+    .card-actions { display:flex !important; align-items:center; justify-content: space-between !important; gap: 8px; margin-top: 8px; width: 100%; }
+    .card-actions .btn { display: inline-flex; align-items: center; justify-content: center; width: auto !important; min-width: 0 !important; padding: 6px 10px; font-size: 12px; line-height: 1.2; border-radius: 6px; flex: 0 0 auto; }
+    .card-actions .btn-secondary { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); color: #e0e0e0; }
+    .card-actions .btn-danger { background: #b3261e; border: 1px solid #b3261e; color: #ffffff; }
+    .card-actions .btn-secondary:hover { background: rgba(255,255,255,0.18); }
+    .card-actions .btn-danger:hover { background: #c23a32; border-color: #c23a32; }
+  </style>
+  <script>
+    function initSectionPage() {
+      const params = new URLSearchParams(window.location.search);
+      const sectionName = params.get('name') || 'Section';
+      const sectionId = params.get('sectionId');
+      document.getElementById('sectionTitle').textContent = sectionName;
+      const API_BASE = 'http://localhost:5000/api/v1';
+
+      const addBtn = document.getElementById('addPastorBtn');
+      const modal = document.getElementById('pastorModal');
+      const closeBtn = document.getElementById('closePastorModal');
+      const form = document.getElementById('pastorForm');
+      const pastorIdInput = document.getElementById('pastorId');
+
+      // Generate PastorID on opening Add modal
+      function pad3(n) { return String(n).padStart(3, '0'); }
+      async function apiListPastors(secId) {
+        try {
+          const res = await fetch(`${API_BASE}/sections/${encodeURIComponent(secId)}/pastors`);
+          if (!res.ok) throw new Error('Failed to list pastors');
+          return await res.json();
+        } catch (e) {
+          console.warn('API list pastors failed; falling back to localStorage', e);
+          return getPastors(secId);
+        }
+      }
+      async function apiCreatePastor(secId, payload) {
+        const res = await fetch(`${API_BASE}/sections/${encodeURIComponent(secId)}/pastors`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Failed to create pastor');
+        return await res.json();
+      }
+      async function apiUpdatePastor(pastorIdDb, payload) {
+        const res = await fetch(`${API_BASE}/pastors/${encodeURIComponent(pastorIdDb)}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Failed to update pastor');
+        return await res.json();
+      }
+      async function apiDeletePastor(pastorIdDb) {
+        const res = await fetch(`${API_BASE}/pastors/${encodeURIComponent(pastorIdDb)}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete pastor');
+        return await res.json();
+      }
+
+      async function generatePastorIdForSection(id) {
+        const existingList = await apiListPastors(id);
+        const existing = new Set(existingList.map(p => p.pastorId));
+        // Try up to 1000 combinations
+        for (let i = 0; i < 1000; i++) {
+          const candidate = `pas${pad3(Math.floor(Math.random() * 1000))}`;
+          if (!existing.has(candidate)) return candidate;
+        }
+        // Fallback: sequential search
+        for (let i = 0; i < 1000; i++) {
+          const candidate = `pas${pad3(i)}`;
+          if (!existing.has(candidate)) return candidate;
+        }
+        return `pas${pad3(Math.floor(Math.random() * 1000))}`;
+      }
+      addBtn.addEventListener('click', async () => {
+        form.dataset.editIndex = '';
+        form.dataset.editId = '';
+        document.querySelector('.modal-title').textContent = 'Add Pastor';
+        if (sectionId) {
+          pastorIdInput.value = await generatePastorIdForSection(sectionId);
+        }
+        modal.style.display = 'block';
+      });
+      closeBtn.addEventListener('click', () => { modal.style.display = 'none'; form.reset(); });
+      window.addEventListener('click', (e) => { if (e.target === modal) { modal.style.display = 'none'; form.reset(); } });
+
+      // Auto-calc Age, Projected retirement date (assume retirement at 65), Remaining tenure
+      const yobInput = document.getElementById('yearOfBirth');
+      const startServiceInput = document.getElementById('startOfService');
+      const ageInput = document.getElementById('age');
+      const projectedRetInput = document.getElementById('projectedRetirementDate');
+      const remainingTenureInput = document.getElementById('remainingTenure');
+
+      function recalc() {
+        const now = new Date();
+        const dobStr = yobInput.value; // expects yyyy-mm-dd
+        const dob = dobStr ? new Date(dobStr) : null;
+        if (dob && !isNaN(dob.getTime())) {
+          // Compute age based on full date
+          let age = now.getFullYear() - dob.getFullYear();
+          const m = now.getMonth() - dob.getMonth();
+          if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) {
+            age--;
+          }
+          ageInput.value = String(age);
+          const retirementYear = dob.getFullYear() + 70;
+          const retDate = new Date(retirementYear, 11, 31);
+          projectedRetInput.value = retDate.toISOString().slice(0,10);
+          // If age >= 70, remaining tenure would be 0; clear and warn in UI subtly (no alert here)
+          if (age >= 70) {
+            remainingTenureInput.value = '';
+          }
+        } else {
+          ageInput.value = '';
+          projectedRetInput.value = '';
+        }
+
+        // Remaining tenure: years from now until projected retirement (>=0)
+        if (ageInput.value) {
+          const ageNum = parseInt(ageInput.value, 10);
+          const remaining = Math.max(0, 70 - (Number.isFinite(ageNum) ? ageNum : 0));
+          remainingTenureInput.value = String(remaining);
+        } else {
+          remainingTenureInput.value = '';
+        }
+      }
+      yobInput.addEventListener('input', recalc);
+      startServiceInput.addEventListener('input', recalc);
+      // Constrain Start of Service based on DOB and today
+      function applyStartOfServiceConstraints() {
+        const dobStr = yobInput.value;
+        const today = new Date();
+        const y = today.getFullYear();
+        const m = String(today.getMonth() + 1).padStart(2, '0');
+        const d = String(today.getDate()).padStart(2, '0');
+        startServiceInput.max = `${y}-${m}-${d}`;
+        if (dobStr) {
+          // set min to DOB
+          startServiceInput.min = dobStr;
+        } else {
+          startServiceInput.removeAttribute('min');
+        }
+      }
+      yobInput.addEventListener('input', applyStartOfServiceConstraints);
+      document.addEventListener('DOMContentLoaded', applyStartOfServiceConstraints);
+
+      function getPastorsKey(id) { return `pastors:${id}`; }
+      function getPastors(id) {
+        try { return JSON.parse(localStorage.getItem(getPastorsKey(id))) || []; } catch { return []; }
+      }
+      function savePastors(id, list) { localStorage.setItem(getPastorsKey(id), JSON.stringify(list)); }
+
+      function formatDateHuman(str) {
+        if (!str) return '';
+        const d = new Date(str);
+        if (isNaN(d.getTime())) return str;
+        // Use a consistent day-month-year format regardless of browser locale
+        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+
+      // Simple list render
+      async function renderPastors(id) {
+        const container = document.getElementById('pastorsList');
+        if (!container) return;
+        const items = await apiListPastors(id);
+        container.innerHTML = '';
+        if (!items.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty-state';
+          empty.textContent = 'No pastors added yet.';
+          container.appendChild(empty);
+          return;
+        }
+        items.forEach((p, idx) => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `
+            <div class="card-header"><h3>${p.fullName}</h3></div>
+            <div class="card-body">
+              <p><strong>PastorID:</strong> ${p.pastorId}</p>
+              <p><strong>Current Position:</strong> ${p.currentPosition || ''}</p>
+              <p><strong>Age:</strong> ${p.age || ''}</p>
+              <p><strong>Projected Retirement:</strong> ${formatDateHuman(p.projectedRetirementDate) || ''}</p>
+              <p><strong>Remaining Tenure (years):</strong> ${p.remainingTenure || ''}</p>
+            </div>
+            <div class="card-actions">
+              <button class="btn btn-secondary" title="Edit" onclick="editPastor('${id}', ${encodeURIComponent(p.id)})">✏️ Edit</button>
+              <button class="btn btn-danger" title="Delete" onclick="deletePastor('${id}', ${encodeURIComponent(p.id)})">🗑️ Delete</button>
+            </div>`;
+          container.appendChild(card);
+        });
+      }
+
+      // Expose edit/delete handlers to window for inline onclick
+      window.editPastor = async function(id, pastorDbId) {
+        const items = await apiListPastors(id);
+        const p = items.find(x => String(x.id) === String(pastorDbId));
+        if (!p) return;
+        // Open modal and prefill fields
+        document.getElementById('fullName').value = p.fullName || '';
+        document.getElementById('pastorId').value = p.pastorId || '';
+        document.getElementById('gender').value = p.gender || '';
+        document.getElementById('currentPosition').value = p.currentPosition || '';
+        document.getElementById('idNo').value = p.idNo || '';
+        document.getElementById('yearOfBirth').value = p.yearOfBirth || '';
+        document.getElementById('age').value = p.age || '';
+        document.getElementById('startOfService').value = p.startOfService || '';
+        document.getElementById('projectedRetirementDate').value = p.projectedRetirementDate || '';
+        document.getElementById('remainingTenure').value = p.remainingTenure || '';
+        // Track edit db id on form dataset
+        form.dataset.editId = String(pastorDbId);
+        form.dataset.editIndex = '';
+        document.querySelector('.modal-title').textContent = 'Edit Pastor';
+        modal.style.display = 'block';
+      };
+
+      window.deletePastor = async function(id, pastorDbId) {
+        if (!confirm('Delete this pastor?')) return;
+        try {
+          await apiDeletePastor(pastorDbId);
+          await renderPastors(id);
+          alert('Pastor deleted');
+        } catch (e) {
+          alert('Failed to delete pastor');
+          console.error(e);
+        }
+      };
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = {
+          fullName: document.getElementById('fullName').value.trim(),
+          pastorId: document.getElementById('pastorId').value.trim(),
+          gender: document.getElementById('gender').value,
+          currentPosition: document.getElementById('currentPosition').value.trim(),
+          idNo: document.getElementById('idNo').value.trim(),
+          yearOfBirth: document.getElementById('yearOfBirth').value.trim(),
+          age: document.getElementById('age').value.trim(),
+          startOfService: document.getElementById('startOfService').value,
+          projectedRetirementDate: document.getElementById('projectedRetirementDate').value,
+          remainingTenure: document.getElementById('remainingTenure').value,
+          createdAt: new Date().toISOString()
+        };
+        if (!data.fullName) {
+          alert('Please provide Full Name');
+          return;
+        }
+        if (data.yearOfBirth) {
+          const dob = new Date(data.yearOfBirth);
+          const today = new Date();
+          if (dob > today) {
+            alert('Date of Birth cannot be in the future');
+            return;
+          }
+        }
+        if (!data.currentPosition) {
+          alert('Please provide Current Position');
+          return;
+        }
+        // Validate gender: must be Male or Female
+        if (data.gender !== 'Male' && data.gender !== 'Female') {
+          alert('Please select Gender as Male or Female');
+          return;
+        }
+        // Validate Start of Service: not in future and after DOB
+        if (data.startOfService) {
+          const sos = new Date(data.startOfService);
+          const today = new Date();
+          if (sos > today) {
+            alert('Start of Service cannot be in the future');
+            return;
+          }
+          if (data.yearOfBirth) {
+            const dob = new Date(data.yearOfBirth);
+            if (sos < dob) {
+              alert('Start of Service must be on or after Date of Birth');
+              return;
+            }
+          }
+        }
+        // Enforce remaining tenure > 0: disallow DOB that yields age >= 70
+        if (data.yearOfBirth) {
+          const dob = new Date(data.yearOfBirth);
+          const now = new Date();
+          let age = now.getFullYear() - dob.getFullYear();
+          const m = now.getMonth() - dob.getMonth();
+          if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) {
+            age--;
+          }
+          if (age >= 70) {
+            alert('Date of Birth results in zero remaining tenure (age ≥ 70). Please select a more recent date.');
+            return;
+          }
+        }
+        if (sectionId) {
+          try {
+            const editId = form.dataset.editId ? parseInt(form.dataset.editId, 10) : null;
+            if (editId) {
+              await apiUpdatePastor(editId, data);
+              alert('Pastor updated successfully');
+            } else {
+              const created = await apiCreatePastor(sectionId, data);
+              // If backend generates pastorId when missing, keep returned value
+              if (created && created.pastorId) {
+                document.getElementById('pastorId').value = created.pastorId;
+              }
+              alert('Pastor captured successfully');
+            }
+            await renderPastors(sectionId);
+          } catch (e) {
+            alert('Failed to save pastor');
+            console.error(e);
+          }
+        }
+        modal.style.display = 'none';
+        form.reset();
+        form.dataset.editIndex = '';
+        form.dataset.editId = '';
+        document.querySelector('.modal-title').textContent = 'Add Pastor';
+      });
+
+      // Initial list render
+      if (sectionId) renderPastors(sectionId);
+    }
+    document.addEventListener('DOMContentLoaded', initSectionPage);
+  </script>
+</head>
+<body>
+  <script>
+    // Set DOB constraints: min so age < 70; max so not in the future
+    document.addEventListener('DOMContentLoaded', () => {
+      const dob = document.getElementById('yearOfBirth');
+      if (dob) {
+        const today = new Date();
+        // Min must be strictly after (today - 70 years) to keep age < 70
+        const limit = new Date(today);
+        limit.setFullYear(limit.getFullYear() - 70);
+        const limitPlusOne = new Date(limit);
+        limitPlusOne.setDate(limitPlusOne.getDate() + 1);
+        const yMin = limitPlusOne.getFullYear();
+        const mMin = String(limitPlusOne.getMonth() + 1).padStart(2, '0');
+        const dMin = String(limitPlusOne.getDate()).padStart(2, '0');
+        dob.min = `${yMin}-${mMin}-${dMin}`;
+
+        const yMaxToday = today.getFullYear();
+        const mMaxToday = String(today.getMonth() + 1).padStart(2, '0');
+        const dMaxToday = String(today.getDate()).padStart(2, '0');
+        dob.max = `${yMaxToday}-${mMaxToday}-${dMaxToday}`;
+      }
+    });
+  </script>
+  <a class="back-link" href="javascript:history.back()" title="Back">⬅ Back</a>
+  <div class="page-container">
+    <div class="page-header">
+      <h1 class="page-title" id="sectionTitle">Section</h1>
+      <div class="actions">
+        <button class="btn btn-primary" id="addPastorBtn">Add Pastor</button>
+      </div>
+    </div>
+    <p style="opacity:0.85; margin-top: 16px;">Manage pastors for this section.</p>
+    <div id="pastorsList" class="grid" style="margin-top:20px;"></div>
+
+    <!-- Add Pastor Modal -->
+    <div id="pastorModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="modal-title">Add Pastor</div>
+          <span id="closePastorModal" class="close">&times;</span>
+        </div>
+        <form id="pastorForm">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="fullName">Full Name</label>
+              <input type="text" id="fullName" placeholder="Enter full name" required />
+            </div>
+            <div class="form-group">
+              <label for="pastorId">PastorID</label>
+              <input type="text" id="pastorId" placeholder="Auto-generated e.g. pas123" readonly />
+            </div>
+            <div class="form-group">
+              <label for="gender">Gender</label>
+              <select id="gender" required>
+                <option value="" disabled selected>Select</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="currentPosition">Current Position</label>
+              <input type="text" id="currentPosition" placeholder="e.g. Senior Pastor" required />
+            </div>
+            <div class="form-group">
+              <label for="idNo">ID No</label>
+              <input type="text" id="idNo" placeholder="National ID" />
+            </div>
+            <div class="form-group">
+              <label for="yearOfBirth">Date of Birth</label>
+              <input type="date" id="yearOfBirth" placeholder="Select date" min="1900-01-01" />
+            </div>
+            <div class="form-group">
+              <label for="age">Age</label>
+              <input type="number" id="age" class="readonly" placeholder="Auto" readonly />
+            </div>
+            <div class="form-group">
+              <label for="startOfService">Start of Service</label>
+              <input type="date" id="startOfService" />
+            </div>
+            <div class="form-group">
+              <label for="projectedRetirementDate">Projected retirement date</label>
+              <input type="date" id="projectedRetirementDate" class="readonly" placeholder="Auto" readonly />
+            </div>
+            <div class="form-group">
+              <label for="remainingTenure">Remaining tenure (years)</label>
+              <input type="number" id="remainingTenure" class="readonly" placeholder="Auto" readonly />
+            </div>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn btn-secondary" id="cancelPastorBtn">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Cancel button closes modal and resets
+    document.addEventListener('DOMContentLoaded', () => {
+      const cancelBtn = document.getElementById('cancelPastorBtn');
+      const modal = document.getElementById('pastorModal');
+      const form = document.getElementById('pastorForm');
+      cancelBtn.addEventListener('click', () => { modal.style.display = 'none'; form.reset(); });
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>District Details</title>
+    <link rel="stylesheet" href="src/dashboard-styles.css" />
+    <style>
+        .page-container { max-width: 1000px; margin: 40px auto; padding: 0 20px; }
+        .page-header { display:flex; justify-content:space-between; align-items:center; }
+        .page-title { font-size: 24px; font-weight: 700; }
+        .actions { display:flex; gap:10px; align-items:center; }
+        /* Modal styles aligned with dashboard */
+        .modal { display:none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background: rgba(0,0,0,0.6); }
+        .modal-content { background: linear-gradient(135deg, rgba(30,30,30,0.95), rgba(40,40,40,0.95)); margin: 8% auto; padding: 20px; border-radius: 12px; width: 90%; max-width: 520px; color: #e0e0e0; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: 16px; }
+        .modal-title { font-size: 20px; font-weight: 700; }
+        .close { cursor: pointer; font-size: 24px; opacity: 0.8; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display:block; margin-bottom:6px; opacity:0.8; }
+        .form-group input { width:100%; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color:#e0e0e0; }
+        .btn-row { display:flex; gap:10px; justify-content:flex-end; margin-top: 12px; }
+        .empty-state { opacity: 0.7; padding: 24px; text-align: center; }
+        .back-link { position: fixed; top: 16px; left: 16px; z-index: 1100; color: #e0e0e0; text-decoration: none; padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); display: inline-flex; align-items: center; gap: 8px; }
+        .back-link:hover { background: rgba(255,255,255,0.15); }
+    </style>
+    <script>
+        const API_BASE = 'http://localhost:5000/api/v1';
+        async function apiListSections(districtId) {
+            const r = await fetch(`${API_BASE}/districts/${districtId}/sections`);
+            if (!r.ok) throw new Error('Failed to load sections');
+            return r.json();
+        }
+        async function apiCreateSection(districtId, payload) {
+            const r = await fetch(`${API_BASE}/districts/${districtId}/sections`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            });
+            if (!r.ok) {
+                let msg = 'Failed to add section';
+                try { const err = await r.json(); msg = err?.error || msg; } catch {}
+                throw new Error(msg);
+            }
+            return r.json();
+        }
+        async function apiUpdateSection(id, payload) {
+            const r = await fetch(`${API_BASE}/sections/${id}`, {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            });
+            if (!r.ok) throw new Error('Failed to update section');
+            return r.json();
+        }
+        async function apiDeleteSection(id) {
+            const r = await fetch(`${API_BASE}/sections/${id}`, { method: 'DELETE' });
+            if (!(r.ok || r.status === 204)) throw new Error('Failed to delete section');
+        }
+
+        function getSectionsKey() { return null; }
+
+        function generateId() {
+            return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        }
+
+        async function renderSections(districtId) {
+            const container = document.getElementById('sectionsList');
+            let sections = [];
+            try { sections = await apiListSections(districtId); } catch (e) { sections = []; }
+            container.innerHTML = '';
+            if (!sections.length) {
+                const empty = document.createElement('div');
+                empty.className = 'empty-state';
+                empty.textContent = 'No sections added yet.';
+                container.appendChild(empty);
+                return;
+            }
+        
+
+            sections.forEach(sec => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `
+                    <div class="card-header">
+                        <h3>${sec.name}</h3>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Churches:</strong> ${sec.churchCount}</p>
+                        <p style="opacity:0.8; font-size: 12px;">Created: ${new Date(sec.createdAt).toLocaleString()}</p>
+                    </div>
+                    <div class="card-actions">
+                        <button class="btn btn-secondary btn-sm edit-section-btn" data-section-id="${sec.id}">Edit</button>
+                        <button class="btn btn-primary btn-sm open-section-btn" data-section-id="${sec.id}">Open Section</button>
+                    </div>
+                `;
+                const editBtn = card.querySelector('.edit-section-btn');
+                editBtn.addEventListener('click', () => editSection(districtId, sec));
+                const openBtn = card.querySelector('.open-section-btn');
+                openBtn.addEventListener('click', () => {
+                    const params = new URLSearchParams({ id: districtId, sectionId: sec.id, name: sec.name });
+                    window.location.href = `section.html?${params.toString()}`;
+                });
+                container.appendChild(card);
+            });
+        }
+
+        function initDistrictPage() {
+            const params = new URLSearchParams(window.location.search);
+            const id = params.get('id');
+            const nameParam = params.get('name');
+            const titleEl = document.getElementById('districtTitle');
+            if (nameParam) {
+                titleEl.textContent = `${nameParam}`;
+                document.title = `District - ${nameParam}`;
+            } else {
+                titleEl.textContent = 'District';
+                document.title = 'District';
+            }
+
+            // Wire Add Section button to open modal
+            const addBtn = document.getElementById('addSectionBtn');
+            const modal = document.getElementById('sectionModal');
+            const closeBtn = document.getElementById('closeSectionModal');
+            const form = document.getElementById('sectionForm');
+            
+            addBtn.addEventListener('click', () => {
+                modal.style.display = 'block';
+            });
+            closeBtn.addEventListener('click', () => {
+                modal.style.display = 'none';
+                form.reset();
+                document.getElementById('editSectionId').value = '';
+                document.querySelector('#sectionModal .modal-title').textContent = 'Add Section';
+                document.querySelector('#sectionForm .btn.btn-primary').textContent = 'Add Section';
+                document.getElementById('deleteSectionBtn').style.display = 'none';
+            });
+            window.addEventListener('click', (event) => {
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                    form.reset();
+                    document.getElementById('editSectionId').value = '';
+                    document.querySelector('#sectionModal .modal-title').textContent = 'Add Section';
+                    document.querySelector('#sectionForm .btn.btn-primary').textContent = 'Add Section';
+                    document.getElementById('deleteSectionBtn').style.display = 'none';
+                }
+            });
+
+            
+
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const name = document.getElementById('sectionName').value.trim();
+                const churches = parseInt(document.getElementById('numberOfChurches').value, 10);
+                if (!id) {
+                    alert('Missing district id. Please open this page from the Dashboard via "Open District".');
+                    return;
+                }
+                if (!name || Number.isNaN(churches) || churches < 0) {
+                    alert('Please provide a section name and a non-negative number of churches.');
+                    return;
+                }
+                const editId = document.getElementById('editSectionId').value;
+                const submitBtn = form.querySelector('button[type="submit"]');
+                const prevText = submitBtn ? submitBtn.textContent : '';
+                if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = editId ? 'Saving...' : 'Adding...'; }
+                try {
+                    if (editId) {
+                        await apiUpdateSection(editId, { name, churchCount: churches });
+                    } else {
+                        await apiCreateSection(id, { name, churchCount: churches });
+                    }
+                } catch (err) {
+                    alert(`Save failed: ${err.message}`);
+                    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prevText; }
+                    return;
+                }
+                await renderSections(id);
+                modal.style.display = 'none';
+                form.reset();
+                document.getElementById('editSectionId').value = '';
+                document.getElementById('deleteSectionBtn').style.display = 'none';
+                document.querySelector('#sectionModal .modal-title').textContent = 'Add Section';
+                document.querySelector('#sectionForm .btn.btn-primary').textContent = 'Add Section';
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prevText || 'Add Section'; }
+            });
+
+            // Initial render (only if we have a district id)
+            if (id) {
+                renderSections(id);
+            } else {
+                console.warn('Missing district id in URL; sections cannot be loaded.');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', initDistrictPage);
+    </script>
+</head>
+<body>
+    <a class="back-link" href="dashboard.html" title="Back to Dashboard">⬅ Back</a>
+    <div class="page-container">
+        <div class="page-header">
+            <h1 class="page-title" id="districtTitle">District</h1>
+            <div class="actions">
+                <button class="btn btn-primary" id="addSectionBtn">Add Section</button>
+            </div>
+        </div>
+        <p style="opacity:0.8; margin-top:16px;">Use the buttons to manage sections for this district.</p>
+        <div id="sectionsList" class="grid" style="margin-top: 20px;"></div>
+
+        <!-- Add Section Modal -->
+        <div id="sectionModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title">Add Section</div>
+                    <span id="closeSectionModal" class="close">&times;</span>
+                </div>
+                <form id="sectionForm">
+                    <input type="hidden" id="editSectionId" />
+                    <div class="form-group">
+                        <label for="sectionName">Section Name</label>
+                        <input type="text" id="sectionName" placeholder="Enter section name" required />
+                    </div>
+                    <div class="form-group">
+                        <label for="numberOfChurches">Number of Churches</label>
+                        <input type="number" id="numberOfChurches" min="0" step="1" placeholder="0" required />
+                    </div>
+                    <div class="btn-row">
+                        <button type="button" class="btn btn-secondary" id="deleteSectionBtn" style="display:none; margin-right:auto;">Delete</button>
+                        <button type="button" class="btn btn-secondary" id="cancelSectionBtn">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Add Section</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Cancel button closes modal
+        document.addEventListener('DOMContentLoaded', () => {
+            const cancelBtn = document.getElementById('cancelSectionBtn');
+            const modal = document.getElementById('sectionModal');
+            const form = document.getElementById('sectionForm');
+            cancelBtn.addEventListener('click', () => {
+                modal.style.display = 'none';
+                form.reset();
+                document.getElementById('editSectionId').value = '';
+                document.querySelector('#sectionModal .modal-title').textContent = 'Add Section';
+                document.querySelector('#sectionForm .btn.btn-primary').textContent = 'Add Section';
+                document.getElementById('deleteSectionBtn').style.display = 'none';
+            });
+        });
+    </script>
+    <script>
+        // Global edit/delete handlers for sections
+        function editSection(districtId, section) {
+            if (!section) return;
+            document.getElementById('sectionName').value = section.name;
+            document.getElementById('numberOfChurches').value = section.churchCount;
+            document.getElementById('editSectionId').value = section.id;
+            document.querySelector('#sectionModal .modal-title').textContent = 'Edit Section';
+            document.querySelector('#sectionForm .btn.btn-primary').textContent = 'Save Changes';
+            const deleteBtn = document.getElementById('deleteSectionBtn');
+            deleteBtn.style.display = 'inline-block';
+            deleteBtn.onclick = function() {
+                deleteSection(districtId, section.id);
+            };
+            document.getElementById('sectionModal').style.display = 'block';
+        }
+
+        function deleteSection(districtId, sectionId) {
+            if (!confirm('Are you sure you want to delete this section?')) return;
+            apiDeleteSection(sectionId)
+                .then(() => renderSections(districtId))
+                .catch(err => alert(`Delete failed: ${err.message}`));
+            // Close modal and reset
+            const modal = document.getElementById('sectionModal');
+            const form = document.getElementById('sectionForm');
+            modal.style.display = 'none';
+            form.reset();
+            document.getElementById('editSectionId').value = '';
+            document.getElementById('deleteSectionBtn').style.display = 'none';
+            document.querySelector('#sectionModal .modal-title').textContent = 'Add Section';
+            document.querySelector('#sectionForm .btn.btn-primary').textContent = 'Add Section';
+        }
+    </script>
+</body>
+</html>
