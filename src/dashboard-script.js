@@ -141,6 +141,61 @@ function setupEventListeners() {
             }, 300);
         });
     }
+
+    // Ensure sections input overwrites default 0 on typing
+    const sectionsInput = document.getElementById('districtSectionCount');
+    if (sectionsInput) {
+        // Select the 0 when the field gains focus so new input replaces it
+        sectionsInput.addEventListener('focus', function() {
+            if (this.value === '0') {
+                this.select();
+            }
+        });
+        // If user clicks into the field while it shows 0, select all to overwrite
+        sectionsInput.addEventListener('mousedown', function(e) {
+            if (this.value === '0') {
+                e.preventDefault();
+                this.focus();
+                this.select();
+            }
+        });
+        // Block non-digit insertions at the source when possible
+        sectionsInput.addEventListener('beforeinput', function(e) {
+            if (typeof e.data === 'string' && /[^0-9]/.test(e.data)) {
+                e.preventDefault();
+            }
+        });
+        // On first digit input while value is 0, replace instead of append
+        sectionsInput.addEventListener('keydown', function(e) {
+            if (this.value === '0' && /^[0-9]$/.test(e.key)) {
+                this.value = e.key;
+                e.preventDefault();
+            }
+        });
+        // Sanitize pasted content to digits only and replace/append sensibly
+        sectionsInput.addEventListener('paste', function(e) {
+            e.preventDefault();
+            const clip = (e.clipboardData || window.clipboardData);
+            const text = clip ? (clip.getData('text') || '') : '';
+            const digits = text.replace(/[^0-9]/g, '');
+            if (!digits) return;
+            if (this.value === '0' || this.value === '') {
+                this.value = digits;
+            } else {
+                this.value += digits;
+            }
+        });
+        // Prevent dropping non-numeric text
+        sectionsInput.addEventListener('drop', function(e) {
+            e.preventDefault();
+        });
+        // Keep only non-negative integers in the field
+        sectionsInput.addEventListener('input', function() {
+            if (this.value === '') return;
+            const cleaned = this.value.replace(/[^0-9]/g, '');
+            if (cleaned !== this.value) this.value = cleaned;
+        });
+    }
 }
 
 /**
