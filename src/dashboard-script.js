@@ -16,34 +16,28 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeDashboard();
 });
 
-// Simple REST API helpers for districts
-const API_BASE = 'http://localhost:5000/api/v1';
-async function apiListDistricts() {
-    const r = await fetch(`${API_BASE}/districts`);
-    if (!r.ok) throw new Error('Failed to load districts');
-    return r.json();
+// Local-only helpers for districts
+function setDistricts(list) {
+    localStorage.setItem(STORAGE_KEYS.DISTRICTS, JSON.stringify(list));
 }
-async function apiCreateDistrict(payload) {
-    const r = await fetch(`${API_BASE}/districts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    });
-    if (!r.ok) throw new Error('Failed to create district');
-    return r.json();
+function upsertDistrictLocal(id, payload) {
+    const districts = getDistricts();
+    if (id) {
+        const idx = districts.findIndex(d => String(d.id) === String(id));
+        if (idx === -1) throw new Error('District not found');
+        districts[idx] = { ...districts[idx], ...payload, updatedAt: new Date().toISOString() };
+        setDistricts(districts);
+        return districts[idx];
+    }
+    const newItem = { id: generateId(), ...payload };
+    districts.push(newItem);
+    setDistricts(districts);
+    return newItem;
 }
-async function apiUpdateDistrict(id, payload) {
-    const r = await fetch(`${API_BASE}/districts/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    });
-    if (!r.ok) throw new Error('Failed to update district');
-    return r.json();
-}
-async function apiDeleteDistrict(id) {
-    const r = await fetch(`${API_BASE}/districts/${id}`, { method: 'DELETE' });
-    if (!(r.ok || r.status === 204)) throw new Error('Failed to delete district');
+function deleteDistrictLocal(id) {
+    const districts = getDistricts().filter(d => String(d.id) !== String(id));
+    setDistricts(districts);
+    return true;
 }
 
 /**
@@ -220,13 +214,8 @@ function setupNavigation() {
  * Load and display districts
  */
 async function loadDistricts() {
-    let districts = [];
-    try {
-        districts = await apiListDistricts();
-    } catch (e) {
-        // Fallback to localStorage if API not available
-        districts = getDistricts();
-    }
+    // Local-only: read from localStorage
+    const districts = getDistricts();
     const grid = document.getElementById('districtsGrid');
     
     grid.innerHTML = '';
@@ -363,11 +352,13 @@ async function handleAddDistrict(event) {
     if (validateDistrict(district)) {
         try {
             if (isEdit) {
-                await apiUpdateDistrict(editId, { name, sectionCount });
-                log(`District updated: ${name}`);
+                upsertDistrictLocal(editId, { name, sectionCount });
+                log(`District updated locally: ${name}`);
+                showToast('District updated', 'success');
             } else {
-                await apiCreateDistrict({ name, sectionCount });
-                log(`District added: ${name}`);
+                const created = upsertDistrictLocal(null, { name, sectionCount, createdAt: district.createdAt });
+                log(`District added locally: ${name}`);
+                showToast('District added', 'success');
             }
         } catch (err) {
             alert(`Save failed: ${err.message}`);
@@ -406,7 +397,7 @@ function validateDistrict(district) {
 async function deleteDistrict(id) {
     if (confirm('Are you sure you want to delete this district?')) {
         try {
-            await apiDeleteDistrict(id);
+            deleteDistrictLocal(id);
         } catch (err) {
             alert(`Delete failed: ${err.message}`);
             return;
@@ -414,7 +405,7 @@ async function deleteDistrict(id) {
         await loadDistricts();
         // If the edit modal is open, close it after successful deletion
         closeDistrictModal();
-        log(`District deleted: ${id}`);
+        log(`District deleted locally: ${id}`);
         showToast('District deleted successfully', 'success');
     }
 }
@@ -424,14 +415,8 @@ async function deleteDistrict(id) {
  * @param {string} id - The district ID
  */
 async function editDistrict(id) {
-    let district;
-    try {
-        const districts = await apiListDistricts();
-        district = districts.find(d => d.id === id);
-    } catch (e) {
-        const districts = getDistricts();
-        district = districts.find(d => d.id === id);
-    }
+    const districts = getDistricts();
+    const district = districts.find(d => String(d.id) === String(id));
     
     if (district) {
         document.getElementById('districtName').value = district.name;
@@ -458,7 +443,7 @@ async function editDistrict(id) {
         }
         // Show modal without resetting (preserve prefilled edit data and labels)
         document.getElementById('districtModal').classList.add('show');
-        log(`Editing district: ${id}`);
+        log(`Editing district locally: ${id}`);
     }
 }
 
