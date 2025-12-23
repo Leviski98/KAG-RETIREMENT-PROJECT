@@ -51,38 +51,41 @@
 
       // Generate PastorID on opening Add modal
       function pad3(n) { return String(n).padStart(3, '0'); }
+      // LocalStorage-only helpers
+      function getPastorsKey(id) { return `pastors:${id}`; }
+      function getPastors(id) {
+        try { return JSON.parse(localStorage.getItem(getPastorsKey(id))) || []; } catch { return []; }
+      }
+      function savePastors(id, list) { localStorage.setItem(getPastorsKey(id), JSON.stringify(list)); }
+      function genLocalId() { return 'loc-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,6); }
       async function apiListPastors(secId) {
-        try {
-          const res = await fetch(`${API_BASE}/sections/${encodeURIComponent(secId)}/pastors`);
-          if (!res.ok) throw new Error('Failed to list pastors');
-          return await res.json();
-        } catch (e) {
-          console.warn('API list pastors failed; falling back to localStorage', e);
-          return getPastors(secId);
-        }
+        // Local-only: return stored list
+        return getPastors(secId);
       }
-      async function apiCreatePastor(secId, payload) {
-        const res = await fetch(`${API_BASE}/sections/${encodeURIComponent(secId)}/pastors`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error('Failed to create pastor');
-        return await res.json();
+      function localCreatePastor(secId, payload) {
+        const list = getPastors(secId);
+        const item = { id: genLocalId(), ...payload };
+        list.push(item);
+        savePastors(secId, list);
+        return item;
       }
-      async function apiUpdatePastor(pastorIdDb, payload) {
-        const res = await fetch(`${API_BASE}/pastors/${encodeURIComponent(pastorIdDb)}`, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error('Failed to update pastor');
-        return await res.json();
+      function localUpdatePastor(secId, pastorIdDb, payload) {
+        const list = getPastors(secId);
+        const idx = list.findIndex(x => String(x.id) === String(pastorIdDb));
+        if (idx === -1) throw new Error('Pastor not found');
+        const updated = { ...list[idx], ...payload, updatedAt: new Date().toISOString() };
+        list[idx] = updated;
+        savePastors(secId, list);
+        return updated;
       }
-      async function apiDeletePastor(pastorIdDb) {
-        const res = await fetch(`${API_BASE}/pastors/${encodeURIComponent(pastorIdDb)}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('Failed to delete pastor');
-        return await res.json();
+      function localDeletePastor(secId, pastorIdDb) {
+        const list = getPastors(secId).filter(x => String(x.id) !== String(pastorIdDb));
+        savePastors(secId, list);
+        return true;
       }
 
       async function generatePastorIdForSection(id) {
-        const existingList = await apiListPastors(id);
+        const existingList = getPastors(id);
         const existing = new Set(existingList.map(p => p.pastorId));
         // Try up to 1000 combinations
         for (let i = 0; i < 1000; i++) {
@@ -168,11 +171,7 @@
       yobInput.addEventListener('input', applyStartOfServiceConstraints);
       document.addEventListener('DOMContentLoaded', applyStartOfServiceConstraints);
 
-      function getPastorsKey(id) { return `pastors:${id}`; }
-      function getPastors(id) {
-        try { return JSON.parse(localStorage.getItem(getPastorsKey(id))) || []; } catch { return []; }
-      }
-      function savePastors(id, list) { localStorage.setItem(getPastorsKey(id), JSON.stringify(list)); }
+      // getPastors/savePastors moved above with local helpers
 
       function formatDateHuman(str) {
         if (!str) return '';
@@ -186,7 +185,7 @@
       async function renderPastors(id) {
         const container = document.getElementById('pastorsList');
         if (!container) return;
-        const items = await apiListPastors(id);
+        const items = getPastors(id);
         container.innerHTML = '';
         if (!items.length) {
           const empty = document.createElement('div');
@@ -208,8 +207,8 @@
               <p><strong>Remaining Tenure (years):</strong> ${p.remainingTenure || ''}</p>
             </div>
             <div class="card-actions">
-              <button class="btn btn-secondary" title="Edit" onclick="editPastor('${id}', ${encodeURIComponent(p.id)})">✏️ Edit</button>
-              <button class="btn btn-danger" title="Delete" onclick="deletePastor('${id}', ${encodeURIComponent(p.id)})">🗑️ Delete</button>
+              <button class="btn btn-secondary" title="Edit" onclick="editPastor('${id}', '${p.id}')">✏️ Edit</button>
+              <button class="btn btn-danger" title="Delete" onclick="deletePastor('${id}', '${p.id}')">🗑️ Delete</button>
             </div>`;
           container.appendChild(card);
         });
@@ -217,7 +216,7 @@
 
       // Expose edit/delete handlers to window for inline onclick
       window.editPastor = async function(id, pastorDbId) {
-        const items = await apiListPastors(id);
+        const items = getPastors(id);
         const p = items.find(x => String(x.id) === String(pastorDbId));
         if (!p) return;
         // Open modal and prefill fields
@@ -241,7 +240,7 @@
       window.deletePastor = async function(id, pastorDbId) {
         if (!confirm('Delete this pastor?')) return;
         try {
-          await apiDeletePastor(pastorDbId);
+          localDeletePastor(id, pastorDbId);
           await renderPastors(id);
           alert('Pastor deleted');
         } catch (e) {
@@ -318,13 +317,12 @@
         }
         if (sectionId) {
           try {
-            const editId = form.dataset.editId ? parseInt(form.dataset.editId, 10) : null;
+            const editId = form.dataset.editId ? String(form.dataset.editId) : null;
             if (editId) {
-              await apiUpdatePastor(editId, data);
+              localUpdatePastor(sectionId, editId, data);
               alert('Pastor updated successfully');
             } else {
-              const created = await apiCreatePastor(sectionId, data);
-              // If backend generates pastorId when missing, keep returned value
+              const created = localCreatePastor(sectionId, data);
               if (created && created.pastorId) {
                 document.getElementById('pastorId').value = created.pastorId;
               }

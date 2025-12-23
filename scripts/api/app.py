@@ -12,8 +12,8 @@ def create_app():
     CORS(app)
     db.init_app(app)
 
-    # Ensure tables exist
-    from .models import District  # noqa: F401
+    # Ensure tables exist: import all models so metadata is populated
+    from .models import District, Section, Pastor  # noqa: F401
     with app.app_context():
         db.create_all()
 

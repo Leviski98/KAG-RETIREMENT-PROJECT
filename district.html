@@ -37,7 +37,10 @@
             });
             if (!r.ok) {
                 let msg = 'Failed to add section';
-                try { const err = await r.json(); msg = err?.error || msg; } catch {}
+                try {
+                    const err = await r.json();
+                    msg = err?.message || err?.error || msg;
+                } catch {}
                 throw new Error(msg);
             }
             return r.json();
@@ -54,7 +57,13 @@
             if (!(r.ok || r.status === 204)) throw new Error('Failed to delete section');
         }
 
-        function getSectionsKey() { return null; }
+        function getSectionsKey(districtId) { return `sections:${districtId}`; }
+        function getLocalSections(districtId) {
+            try { return JSON.parse(localStorage.getItem(getSectionsKey(districtId))) || []; } catch { return []; }
+        }
+        function setLocalSections(districtId, list) {
+            localStorage.setItem(getSectionsKey(districtId), JSON.stringify(list));
+        }
 
         function generateId() {
             return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -63,7 +72,7 @@
         async function renderSections(districtId) {
             const container = document.getElementById('sectionsList');
             let sections = [];
-            try { sections = await apiListSections(districtId); } catch (e) { sections = []; }
+            try { sections = await apiListSections(districtId); } catch (e) { sections = getLocalSections(districtId); }
             container.innerHTML = '';
             if (!sections.length) {
                 const empty = document.createElement('div');
@@ -167,9 +176,25 @@
                         await apiCreateSection(id, { name, churchCount: churches });
                     }
                 } catch (err) {
-                    alert(`Save failed: ${err.message}`);
-                    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prevText; }
-                    return;
+                    // Fallback to local storage when API unavailable
+                    try {
+                        const list = getLocalSections(id);
+                        if (editId) {
+                            const idx = list.findIndex(s => String(s.id) === String(editId));
+                            if (idx >= 0) {
+                                list[idx] = { ...list[idx], name, churchCount: churches };
+                            }
+                        } else {
+                            const newSec = { id: generateId(), districtId: id, name, churchCount: churches, createdAt: new Date().toISOString() };
+                            list.unshift(newSec);
+                        }
+                        setLocalSections(id, list);
+                        alert('Server unreachable. Saved locally.');
+                    } catch (fallbackErr) {
+                        alert(`Save failed: ${err.message}`);
+                        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prevText; }
+                        return;
+                    }
                 }
                 await renderSections(id);
                 modal.style.display = 'none';
@@ -267,7 +292,17 @@
             if (!confirm('Are you sure you want to delete this section?')) return;
             apiDeleteSection(sectionId)
                 .then(() => renderSections(districtId))
-                .catch(err => alert(`Delete failed: ${err.message}`));
+                .catch(err => {
+                    // Fallback to local removal
+                    try {
+                        const list = getLocalSections(districtId).filter(s => String(s.id) !== String(sectionId));
+                        setLocalSections(districtId, list);
+                        renderSections(districtId);
+                        alert('Server unreachable. Deleted locally.');
+                    } catch (_) {
+                        alert(`Delete failed: ${err.message}`);
+                    }
+                });
             // Close modal and reset
             const modal = document.getElementById('sectionModal');
             const form = document.getElementById('sectionForm');
