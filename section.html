@@ -41,7 +41,7 @@
       const sectionName = params.get('name') || 'Section';
       const sectionId = params.get('sectionId');
       document.getElementById('sectionTitle').textContent = sectionName;
-      const API_BASE = 'http://localhost:5000/api/v1';
+      // Local-only mode: no external API
 
       const addBtn = document.getElementById('addPastorBtn');
       const modal = document.getElementById('pastorModal');

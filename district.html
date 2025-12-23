@@ -25,37 +25,7 @@
         .back-link:hover { background: rgba(255,255,255,0.15); }
     </style>
     <script>
-        const API_BASE = 'http://localhost:5000/api/v1';
-        async function apiListSections(districtId) {
-            const r = await fetch(`${API_BASE}/districts/${districtId}/sections`);
-            if (!r.ok) throw new Error('Failed to load sections');
-            return r.json();
-        }
-        async function apiCreateSection(districtId, payload) {
-            const r = await fetch(`${API_BASE}/districts/${districtId}/sections`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-            });
-            if (!r.ok) {
-                let msg = 'Failed to add section';
-                try {
-                    const err = await r.json();
-                    msg = err?.message || err?.error || msg;
-                } catch {}
-                throw new Error(msg);
-            }
-            return r.json();
-        }
-        async function apiUpdateSection(id, payload) {
-            const r = await fetch(`${API_BASE}/sections/${id}`, {
-                method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-            });
-            if (!r.ok) throw new Error('Failed to update section');
-            return r.json();
-        }
-        async function apiDeleteSection(id) {
-            const r = await fetch(`${API_BASE}/sections/${id}`, { method: 'DELETE' });
-            if (!(r.ok || r.status === 204)) throw new Error('Failed to delete section');
-        }
+        // Local-only storage for sections
 
         function getSectionsKey(districtId) { return `sections:${districtId}`; }
         function getLocalSections(districtId) {
@@ -71,8 +41,7 @@
 
         async function renderSections(districtId) {
             const container = document.getElementById('sectionsList');
-            let sections = [];
-            try { sections = await apiListSections(districtId); } catch (e) { sections = getLocalSections(districtId); }
+            const sections = getLocalSections(districtId);
             container.innerHTML = '';
             if (!sections.length) {
                 const empty = document.createElement('div');
@@ -170,31 +139,21 @@
                 const prevText = submitBtn ? submitBtn.textContent : '';
                 if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = editId ? 'Saving...' : 'Adding...'; }
                 try {
+                    const list = getLocalSections(id);
                     if (editId) {
-                        await apiUpdateSection(editId, { name, churchCount: churches });
-                    } else {
-                        await apiCreateSection(id, { name, churchCount: churches });
-                    }
-                } catch (err) {
-                    // Fallback to local storage when API unavailable
-                    try {
-                        const list = getLocalSections(id);
-                        if (editId) {
-                            const idx = list.findIndex(s => String(s.id) === String(editId));
-                            if (idx >= 0) {
-                                list[idx] = { ...list[idx], name, churchCount: churches };
-                            }
-                        } else {
-                            const newSec = { id: generateId(), districtId: id, name, churchCount: churches, createdAt: new Date().toISOString() };
-                            list.unshift(newSec);
+                        const idx = list.findIndex(s => String(s.id) === String(editId));
+                        if (idx >= 0) {
+                            list[idx] = { ...list[idx], name, churchCount: churches };
                         }
-                        setLocalSections(id, list);
-                        alert('Server unreachable. Saved locally.');
-                    } catch (fallbackErr) {
-                        alert(`Save failed: ${err.message}`);
-                        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prevText; }
-                        return;
+                    } else {
+                        const newSec = { id: generateId(), districtId: id, name, churchCount: churches, createdAt: new Date().toISOString() };
+                        list.unshift(newSec);
                     }
+                    setLocalSections(id, list);
+                } catch (err) {
+                    alert(`Save failed: ${err.message}`);
+                    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prevText; }
+                    return;
                 }
                 await renderSections(id);
                 modal.style.display = 'none';
@@ -290,19 +249,13 @@
 
         function deleteSection(districtId, sectionId) {
             if (!confirm('Are you sure you want to delete this section?')) return;
-            apiDeleteSection(sectionId)
-                .then(() => renderSections(districtId))
-                .catch(err => {
-                    // Fallback to local removal
-                    try {
-                        const list = getLocalSections(districtId).filter(s => String(s.id) !== String(sectionId));
-                        setLocalSections(districtId, list);
-                        renderSections(districtId);
-                        alert('Server unreachable. Deleted locally.');
-                    } catch (_) {
-                        alert(`Delete failed: ${err.message}`);
-                    }
-                });
+            try {
+                const list = getLocalSections(districtId).filter(s => String(s.id) !== String(sectionId));
+                setLocalSections(districtId, list);
+                renderSections(districtId);
+            } catch (err) {
+                alert(`Delete failed: ${err.message}`);
+            }
             // Close modal and reset
             const modal = document.getElementById('sectionModal');
             const form = document.getElementById('sectionForm');
