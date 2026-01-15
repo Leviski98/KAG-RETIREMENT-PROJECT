@@ -1,4 +1,4 @@
-﻿# Netlify configuration for KAG Retirement Project
+# Netlify configuration for KAG Retirement Project
 
 [build]
   publish = "."
