@@ -26,3 +26,7 @@ node_modules/
 dist/
 build/
 coverage/
+
+# Backend - deployed separately
+KAG-RETIREMENT-PROJECT-BACKEND/
+scripts/
