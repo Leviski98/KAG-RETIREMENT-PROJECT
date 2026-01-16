@@ -203,15 +203,15 @@ function updateInputValidationStyle(input, isValid) {
 function simulateLogin(username, password, rememberMe) {
     return new Promise((resolve, reject) => {
         setTimeout(() => {
-            // Fixed credentials: username 'kag' and password 'kag123'
-            if (username === 'kag' && password === 'kag123') {
+            // Fixed credentials: username 'KAG' and password 'KAGadmin123'
+            if (username === 'KAG' && password === 'KAGadmin123') {
                 resolve({ username, rememberMe });
             } else if (username.length < 3) {
                 reject(new Error('Invalid username format'));
             } else if (password.length < 6) {
                 reject(new Error('Invalid password format'));
             } else {
-                reject(new Error('Invalid credentials. Try: kag / kag123'));
+                reject(new Error('Invalid credentials. Please use the correct username and password.'));
             }
         }, 800);
     });
