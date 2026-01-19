@@ -35,12 +35,12 @@
     .card-actions .btn-secondary:hover { background: rgba(255,255,255,0.18); }
     .card-actions .btn-danger:hover { background: #c23a32; border-color: #c23a32; }
     /* Collapsible card styles */
-    .card-header { cursor: pointer; user-select: none; }
-    .card-header:hover { opacity: 0.9; }
+    .card-header h3 { cursor: pointer; user-select: none; margin: 0; position: relative; }
+    .card-header h3:hover { opacity: 0.9; }
     .card-body, .card-actions { max-height: 0; overflow: hidden; opacity: 0; transition: max-height 0.3s ease, opacity 0.3s ease, margin-top 0.3s ease; }
     .card.expanded .card-body, .card.expanded .card-actions { max-height: 1000px; opacity: 1; margin-top: 12px; }
-    .card-header::after { content: '▼'; float: right; transition: transform 0.3s ease; font-size: 14px; opacity: 0.6; }
-    .card.expanded .card-header::after { transform: rotate(180deg); }
+    .card-header h3::after { content: '▼'; margin-left: 8px; transition: transform 0.3s ease; font-size: 14px; opacity: 0.6; display: inline-block; }
+    .card.expanded .card-header h3::after { transform: rotate(180deg); }
   </style>
   <script>
     function initSectionPage() {
@@ -220,9 +220,9 @@
               <button class="btn btn-danger" title="Delete" onclick="deletePastor('${id}', '${p.id}'); event.stopPropagation();">🗑️ Delete</button>
             </div>`;
           
-          // Add click handler to card header for expansion (single click toggle)
-          const header = card.querySelector('.card-header');
-          header.addEventListener('click', function(e) {
+          // Add click handler to name (h3) for expansion (single click toggle)
+          const nameElement = card.querySelector('.card-header h3');
+          nameElement.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
             const isExpanded = card.classList.contains('expanded');
@@ -234,7 +234,7 @@
             if (!isExpanded) {
               card.classList.add('expanded');
             }
-          });
+          }, { passive: false });
           
           container.appendChild(card);
         });
