@@ -34,6 +34,13 @@
     .card-actions .btn-danger { background: #b3261e; border: 1px solid #b3261e; color: #ffffff; }
     .card-actions .btn-secondary:hover { background: rgba(255,255,255,0.18); }
     .card-actions .btn-danger:hover { background: #c23a32; border-color: #c23a32; }
+    /* Collapsible card styles */
+    .card-header { cursor: pointer; user-select: none; }
+    .card-header:hover { opacity: 0.9; }
+    .card-body, .card-actions { max-height: 0; overflow: hidden; opacity: 0; transition: max-height 0.3s ease, opacity 0.3s ease, margin-top 0.3s ease; }
+    .card.expanded .card-body, .card.expanded .card-actions { max-height: 1000px; opacity: 1; margin-top: 12px; }
+    .card-header::after { content: '▼'; float: right; transition: transform 0.3s ease; font-size: 14px; opacity: 0.6; }
+    .card.expanded .card-header::after { transform: rotate(180deg); }
   </style>
   <script>
     function initSectionPage() {
@@ -209,11 +216,33 @@
               <p><strong>Remaining Tenure (years):</strong> ${p.remainingTenure || ''}</p>
             </div>
             <div class="card-actions">
-              <button class="btn btn-secondary" title="Edit" onclick="editPastor('${id}', '${p.id}')">✏️ Edit</button>
-              <button class="btn btn-danger" title="Delete" onclick="deletePastor('${id}', '${p.id}')">🗑️ Delete</button>
+              <button class="btn btn-secondary" title="Edit" onclick="editPastor('${id}', '${p.id}'); event.stopPropagation();">✏️ Edit</button>
+              <button class="btn btn-danger" title="Delete" onclick="deletePastor('${id}', '${p.id}'); event.stopPropagation();">🗑️ Delete</button>
             </div>`;
+          
+          // Add click handler to card header for expansion
+          const header = card.querySelector('.card-header');
+          header.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // Close all other cards
+            document.querySelectorAll('.card.expanded').forEach(c => {
+              if (c !== card) c.classList.remove('expanded');
+            });
+            // Toggle this card
+            card.classList.toggle('expanded');
+          });
+          
           container.appendChild(card);
         });
+        
+        // Add click-outside handler to collapse cards
+        document.addEventListener('click', collapseAllCards);
+      }
+      
+      function collapseAllCards(e) {
+        // Don't collapse if clicking inside a card or modal
+        if (e && (e.target.closest('.card') || e.target.closest('.modal'))) return;
+        document.querySelectorAll('.card.expanded').forEach(c => c.classList.remove('expanded'));
       }
 
       // Expose edit/delete handlers to window for inline onclick
