@@ -220,23 +220,30 @@
               <button class="btn btn-danger" title="Delete" onclick="deletePastor('${id}', '${p.id}'); event.stopPropagation();">🗑️ Delete</button>
             </div>`;
           
-          // Add click handler to card header for expansion
+          // Add click handler to card header for expansion (single click toggle)
           const header = card.querySelector('.card-header');
-          header.addEventListener('click', (e) => {
+          header.addEventListener('click', function(e) {
+            e.preventDefault();
             e.stopPropagation();
-            // Close all other cards
+            const isExpanded = card.classList.contains('expanded');
+            // Close all other cards first
             document.querySelectorAll('.card.expanded').forEach(c => {
-              if (c !== card) c.classList.remove('expanded');
+              c.classList.remove('expanded');
             });
-            // Toggle this card
-            card.classList.toggle('expanded');
+            // Toggle this card (if it wasn't expanded, expand it)
+            if (!isExpanded) {
+              card.classList.add('expanded');
+            }
           });
           
           container.appendChild(card);
         });
         
-        // Add click-outside handler to collapse cards
-        document.addEventListener('click', collapseAllCards);
+        // Add click-outside handler to collapse cards (only add once)
+        if (!window.collapseHandlerAdded) {
+          document.addEventListener('click', collapseAllCards);
+          window.collapseHandlerAdded = true;
+        }
       }
       
       function collapseAllCards(e) {
